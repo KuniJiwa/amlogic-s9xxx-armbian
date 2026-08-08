@@ -236,6 +236,89 @@ EOF
             echo -e "${NOTE} 05. Skipping armbian-kernel script addition."
         fi
 
+ # ====================== Custom slim cleanup: only desktop & static redundant files ======================
+        # 05.1 Rootfs Slimming
+        echo -e "${STEPS} 05.1 Execute conservative rootfs slimming (retain services & compile tools)"
+
+        # Purge desktop related packages
+        sudo chroot "${tmp_rootfs}" /bin/bash <<'EOC'
+PACKAGES=(xorg lightdm xinit vlc mpv firefox x11-utils fonts-noto-extra)
+for pkg in "${PACKAGES[@]}"; do
+    if dpkg -s "${pkg}" >/dev/null 2>&1; then
+        echo -e "  Purge package: ${pkg}"
+        apt -y purge "${pkg}"
+    else
+        echo -e "  Package not found, skip purge: ${pkg}"
+    fi
+done
+apt -y autoremove --purge || true
+EOC
+        [[ $? -eq 0 ]] && echo -e "${INFO} 05.1.1 Desktop packages purged successfully." || echo -e "${WARNING} 05.1.1 Desktop packages purge encounter warning, continue build."
+
+        # Remove document and debug files
+        doc_list=(
+            "${tmp_rootfs}/usr/share/man"
+            "${tmp_rootfs}/usr/share/doc"
+            "${tmp_rootfs}/usr/share/info"
+            "${tmp_rootfs}/usr/share/examples"
+            "${tmp_rootfs}/usr/lib/debug"
+        )
+        for doc_item in "${doc_list[@]}"; do
+            if [ -e "${doc_item}" ]; then
+                echo -e "${INFO} 05.1.2 Remove doc item: [ ${doc_item} ]"
+                sudo rm -rf "${doc_item}"
+            else
+                echo -e "${NOTE} 05.1.2 Doc item not found, skip: [ ${doc_item} ]"
+            fi
+        done
+        echo -e "${INFO} 05.1.2 Static document cleanup done."
+
+        # Keep only en & zh_CN locale
+        sudo chroot "${tmp_rootfs}" /bin/bash <<'EOC'
+locale_path="/usr/share/locale"
+if [ -d "${locale_path}" ]; then
+    echo -e "  Start clean locale, keep en & zh_CN"
+    find "${locale_path}" -mindepth 1 -maxdepth 1 -type d ! -name 'en' ! -name 'zh_CN' -exec rm -rf {} +
+else
+    echo -e "  locale dir not found, skip locale clean"
+fi
+EOC
+        [[ $? -eq 0 ]] && echo -e "${INFO} 05.1.3 Extra locale files removed." || echo -e "${WARNING} 05.1.3 Locale clean encounter warning, continue build."
+
+        # Firmware: keep meson only
+        sudo chroot "${tmp_rootfs}" /bin/bash <<'EOC'
+firmware_path="/usr/lib/firmware"
+if [ -d "${firmware_path}" ]; then
+    echo -e "  Start clean firmware, keep only meson dir"
+    find "${firmware_path}" -mindepth 1 -maxdepth 1 -type d ! -name 'meson' -exec rm -rf {} +
+else
+    echo -e "  firmware dir not found, skip firmware clean"
+fi
+EOC
+        [[ $? -eq 0 ]] && echo -e "${INFO} 05.1.4 Firmware cleanup finished." || echo -e "${WARNING} 05.1.4 Firmware clean encounter warning, continue build."
+
+        # Clear apt lists / cache
+        apt_list_dir="${tmp_rootfs}/var/lib/apt/lists"
+        apt_cache_dir="${tmp_rootfs}/var/cache/apt"
+
+        if [ -d "${apt_list_dir}" ]; then
+            echo -e "${INFO} 05.1.5 Clear apt lists cache"
+            sudo rm -rf "${apt_list_dir}"/*
+        else
+            echo -e "${NOTE} 05.1.5 apt lists dir not found, skip clear lists"
+        fi
+
+        if [ -d "${apt_cache_dir}" ]; then
+            echo -e "${INFO} 05.1.6 Clear apt cache"
+            sudo rm -rf "${apt_cache_dir}"/*
+        else
+            echo -e "${NOTE} 05.1.6 apt cache dir not found, skip clear cache"
+        fi
+        echo -e "${INFO} 05.1 APT cache & temp directories cleared."
+
+        echo -e "${SUCCESS} 05.1 Conservative rootfs slimming finished."
+# ======================================================================================================
+
         # Compress the rootfs file
         sudo tar -czf ${rootfs_save_name} *
         sudo mv -f ${rootfs_save_name} ../
