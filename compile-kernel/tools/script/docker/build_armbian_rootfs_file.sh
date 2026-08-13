@@ -247,6 +247,7 @@ EOF
     # Rename Armbian image
     if [[ -n "${image_file}" ]]; then
         cd ${image_path}/
+        bash ${current_path}/compile-kernel/tools/script/docker/slim.sh "${image_path}/${image_file}" || true
         mv -f ${image_file} ${image_save_name}
         pigz -qf *.img || gzip -qf *.img
         [[ "${?}" == "0" ]] && echo -e "${INFO} 07. Armbian image renamed successfully." || error_msg "07. Failed to rename the image!"
